@@ -10,8 +10,10 @@ import { sendAppeal } from './src/lib/appealEngine.ts';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const resolvedFilename = typeof import.meta !== 'undefined' && import.meta.url
+  ? fileURLToPath(import.meta.url)
+  : '';
+const resolvedDirname = resolvedFilename ? path.dirname(resolvedFilename) : process.cwd();
 
 // Global bot instance reference for hot-reloading
 let botInstance: TelegramBot | null = null;
