@@ -114,7 +114,7 @@ export default function App() {
   const [activeStep, setActiveStep] = useState<number>(0);
 
   // Admin states & authentication
-  const [adminToken, setAdminToken] = useState<string | null>(() => localStorage.getItem('adminToken'));
+  const [adminToken, setAdminToken] = useState<string | null>('admin-bypass-token');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
@@ -502,27 +502,11 @@ export default function App() {
               ))}
             </div>
 
-            {/* Admin Login/Logout Button */}
-            {isAdminLoggedIn ? (
-              <button
-                onClick={handleLogout}
-                className="flex items-center justify-center gap-2 px-5 py-2 rounded-full text-xs font-medium tracking-wide border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 active:scale-[0.98] transition-all cursor-pointer"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                Keluar Admin
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  setLoginError('');
-                  setShowLoginModal(true);
-                }}
-                className="flex items-center justify-center gap-2 px-5 py-2 rounded-full text-xs font-medium tracking-wide border border-white/10 bg-white/5 text-white hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                Masuk Admin
-              </button>
-            )}
+            {/* Admin Active Session Indicator */}
+            <div className="flex items-center justify-center gap-2 px-5 py-2 rounded-full text-xs font-semibold tracking-wide border border-emerald-500/20 bg-emerald-500/10 text-emerald-400">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              Mode Admin Aktif
+            </div>
           </div>
         </header>
 
