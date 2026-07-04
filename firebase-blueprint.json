@@ -1,0 +1,83 @@
+{
+  "entities": {
+    "Config": {
+      "title": "Config",
+      "description": "App configuration",
+      "type": "object",
+      "properties": {
+        "gmail_user": { "type": "string" },
+        "gmail_pass": { "type": "string" },
+        "bot_token": { "type": "string" },
+        "custom_success_msg": { "type": "string" },
+        "custom_fail_msg": { "type": "string" }
+      },
+      "required": ["gmail_user", "gmail_pass", "bot_token"]
+    },
+    "Appeal": {
+      "title": "Appeal",
+      "description": "Appeal record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "name": { "type": "string" },
+        "language": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "status": { "type": "string", "enum": ["success", "failed"] },
+        "error": { "type": "string" },
+        "sender": { "type": "string", "enum": ["telegram", "web"] },
+        "userId": { "type": "string" },
+        "username": { "type": "string" }
+      },
+      "required": ["id", "phoneNumber", "name", "language", "text", "timestamp", "status", "sender"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Registered Telegram user record",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "role": { "type": "string", "enum": ["free", "premium", "admin"] },
+        "lastAppealTime": { "type": "string" },
+        "saldo": { "type": "number" },
+        "auto_renew": { "type": "boolean" }
+      },
+      "required": ["userId", "role"]
+    },
+    "RedeemCode": {
+      "title": "RedeemCode",
+      "description": "Voucher/Redeem code details",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "durationDays": { "type": "number" },
+        "saldoBonus": { "type": "number" },
+        "isUsed": { "type": "boolean" },
+        "usedBy": { "type": "string" },
+        "usedAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["code", "durationDays", "saldoBonus", "isUsed", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/config/{configId}": {
+      "schema": "Config",
+      "description": "Global settings for the application"
+    },
+    "/appeals/{appealId}": {
+      "schema": "Appeal",
+      "description": "Collection of submitted phone recovery/appeal records"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User subscription and credentials records"
+    },
+    "/redeemCodes/{code}": {
+      "schema": "RedeemCode",
+      "description": "A set of generated VIP/Redeem voucher codes"
+    }
+  }
+}

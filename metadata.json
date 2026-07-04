@@ -1,0 +1,6 @@
+{
+  "name": "NovaDown: Luxury AI Downloader",
+  "description": "High-end media downloader for TikTok, Instagram, Twitter/X, and Threads with Telegram Bot integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["bot", "downloader", "media"]
+}

@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net - Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Standard helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Entity validation functions
+    function isValidConfig(data) {
+      return data.keys().hasAll(['gmail_user', 'gmail_pass', 'bot_token'])
+        && data.gmail_user is string && data.gmail_user.size() <= 256
+        && data.gmail_pass is string && data.gmail_pass.size() <= 256
+        && data.bot_token is string && data.bot_token.size() <= 256;
+    }
+
+    function isValidAppeal(data) {
+      return data.keys().hasAll(['id', 'phoneNumber', 'name', 'language', 'text', 'timestamp', 'status', 'sender'])
+        && data.id is string && data.id.size() <= 128
+        && data.phoneNumber is string && data.phoneNumber.size() <= 32
+        && data.name is string && data.name.size() <= 128
+        && data.language is string && data.language.size() <= 64
+        && data.text is string && data.text.size() <= 2048
+        && data.timestamp is string && data.timestamp.size() <= 64
+        && data.status is string && (data.status == 'success' || data.status == 'failed')
+        && data.sender is string && (data.sender == 'telegram' || data.sender == 'web');
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['userId', 'role'])
+        && data.userId is string && data.userId.size() <= 128
+        && data.role is string && (data.role == 'free' || data.role == 'premium' || data.role == 'admin')
+        && (!('saldo' in data) || data.saldo is number)
+        && (!('auto_renew' in data) || data.auto_renew is bool)
+        && (!('lastAppealTime' in data) || data.lastAppealTime is string);
+    }
+
+    function isValidRedeemCode(data) {
+      return data.keys().hasAll(['code', 'durationDays', 'saldoBonus', 'isUsed', 'createdAt'])
+        && data.code is string && data.code.size() <= 128
+        && data.durationDays is number && data.durationDays >= 0
+        && data.saldoBonus is number && data.saldoBonus >= 0
+        && data.isUsed is bool
+        && data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    // Rules for Config
+    match /config/{configId} {
+      allow read, write: if false; // Config is server-only and completely hidden from the client
+    }
+
+    // Rules for Appeals
+    match /appeals/{appealId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+      
+      allow create: if isSignedIn() 
+        && isValidId(appealId) 
+        && isValidAppeal(request.resource.data)
+        && request.resource.data.userId == request.auth.uid;
+        
+      allow update, delete: if false; // Appeals are immutable by client SDKs
+    }
+
+    // Rules for Users
+    match /users/{userId} {
+      allow get: if isOwner(userId) || exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      allow list: if exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      
+      allow create: if isOwner(userId) 
+        && isValidId(userId) 
+        && isValidUser(request.resource.data)
+        && request.resource.data.role == 'free' // Force free role for self-registration to prevent privilege escalation
+        && request.resource.data.saldo == 0;
+        
+      allow update: if isOwner(userId)
+        && isValidUser(request.resource.data)
+        // Prevent users from escalating their own role, saldo, or auto-renew via client SDK
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.saldo == resource.data.saldo
+        && request.resource.data.auto_renew == resource.data.auto_renew
+        && request.resource.data.userId == resource.data.userId;
+
+      allow delete: if false;
+    }
+
+    // Rules for Redeem Codes
+    match /redeemCodes/{code} {
+      allow get: if isSignedIn(); // Allow anyone authenticated to inspect a code's validity
+      allow list: if exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      
+      allow create, delete: if false; // Only manageable by admin via backend
+      
+      allow update: if isSignedIn()
+        && isValidRedeemCode(request.resource.data)
+        && resource.data.isUsed == false // Can only claim if not yet used
+        && request.resource.data.isUsed == true
+        && request.resource.data.usedBy == request.auth.uid
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.durationDays == resource.data.durationDays
+        && request.resource.data.saldoBonus == resource.data.saldoBonus;
+    }
+  }
+}
