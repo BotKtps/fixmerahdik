@@ -80,16 +80,21 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
 
   // Setup email transporter
   const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // Use SSL
     auth: {
       user: config.gmail_user,
       pass: config.gmail_pass,
     },
+    tls: {
+      rejectUnauthorized: false // Avoid TLS handshake failures on various container hosting environments
+    }
   });
 
   const mailOptions = {
     from: `"WhatsApp Support Appeal" <${config.gmail_user}>`,
-    to: 'android@support.whatsapp.com',
+    to: 'android@support.whatsapp.com, iphone@support.whatsapp.com, support@support.whatsapp.com, support@whatsapp.com, webclient@support.whatsapp.com',
     subject: subject,
     text: bodyText,
   };
