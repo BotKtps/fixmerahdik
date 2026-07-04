@@ -5,10 +5,31 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 import { loadDb, saveDb, UserRecord, initDb } from './src/lib/db.ts';
 import { sendAppeal } from './src/lib/appealEngine.ts';
 
 dotenv.config();
+
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'AeroAppeal2026!';
+
+// Store valid session tokens in-memory (highly secure, cleared on restart)
+const activeSessions = new Set<string>();
+
+// Middleware to secure administrator-only API endpoints
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: 'Unauthorized: Token admin diperlukan' });
+  }
+  const token = authHeader.replace('Bearer ', '');
+  if (activeSessions.has(token)) {
+    next();
+  } else {
+    res.status(401).json({ error: 'Unauthorized: Token admin tidak valid atau kedaluwarsa' });
+  }
+}
 
 const resolvedFilename = typeof import.meta !== 'undefined' && import.meta.url
   ? fileURLToPath(import.meta.url)
@@ -979,6 +1000,29 @@ async function startServer() {
 
   // --- API Routes ---
   
+  // --- Admin Authentication Endpoints ---
+
+  app.post('/api/admin/login', (req, res) => {
+    const { username, password } = req.body;
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+      // Generate a secure token
+      const token = crypto.randomBytes(32).toString('hex');
+      activeSessions.add(token);
+      res.json({ success: true, token, message: 'Login admin berhasil!' });
+    } else {
+      res.status(401).json({ error: 'Username atau password salah!' });
+    }
+  });
+
+  app.post('/api/admin/logout', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      activeSessions.delete(token);
+    }
+    res.json({ success: true, message: 'Logout berhasil' });
+  });
+
   // Get entire status and configuration
   app.get('/api/status', (req, res) => {
     const database = loadDb();
@@ -1003,7 +1047,7 @@ async function startServer() {
   });
 
   // Update configuration (Gmail & Telegram Token)
-  app.post('/api/config', (req, res) => {
+  app.post('/api/config', requireAdmin, (req, res) => {
     const { gmail_user, gmail_pass, bot_token, custom_success_msg, custom_fail_msg } = req.body;
     
     try {
@@ -1038,13 +1082,13 @@ async function startServer() {
   });
 
   // Get users database for Web UI management
-  app.get('/api/users', (req, res) => {
+  app.get('/api/users', requireAdmin, (req, res) => {
     const database = loadDb();
     res.json(database.users || []);
   });
 
   // Modify user role from Web UI
-  app.post('/api/users/role', (req, res) => {
+  app.post('/api/users/role', requireAdmin, (req, res) => {
     const { userId, role } = req.body;
     if (!userId || !role) return res.status(400).json({ error: 'UserID and role are required' });
 
@@ -1064,7 +1108,7 @@ async function startServer() {
   });
 
   // Update user saldo from Web UI
-  app.post('/api/users/saldo', (req, res) => {
+  app.post('/api/users/saldo', requireAdmin, (req, res) => {
     const { userId, saldo } = req.body;
     if (!userId || saldo === undefined) return res.status(400).json({ error: 'UserID and saldo are required' });
 
@@ -1084,7 +1128,7 @@ async function startServer() {
   });
 
   // Delete user from Web UI
-  app.delete('/api/users/:userId', (req, res) => {
+  app.delete('/api/users/:userId', requireAdmin, (req, res) => {
     const { userId } = req.params;
     try {
       const database = loadDb();
@@ -1116,7 +1160,7 @@ async function startServer() {
   });
 
   // Clear appeal logs history
-  app.post('/api/clear-history', (req, res) => {
+  app.post('/api/clear-history', requireAdmin, (req, res) => {
     try {
       const database = loadDb();
       database.appeals = [];
@@ -1128,7 +1172,7 @@ async function startServer() {
   });
 
   // Get redeem codes list
-  app.get('/api/redeem-codes', (req, res) => {
+  app.get('/api/redeem-codes', requireAdmin, (req, res) => {
     try {
       const database = loadDb();
       res.json(database.redeemCodes || []);
@@ -1138,7 +1182,7 @@ async function startServer() {
   });
 
   // Create a new redeem code from Web UI
-  app.post('/api/redeem-codes', (req, res) => {
+  app.post('/api/redeem-codes', requireAdmin, (req, res) => {
     const { durationDays, saldoBonus } = req.body;
     try {
       const database = loadDb();
@@ -1167,7 +1211,7 @@ async function startServer() {
   });
 
   // Delete a redeem code from Web UI
-  app.delete('/api/redeem-codes/:code', (req, res) => {
+  app.delete('/api/redeem-codes/:code', requireAdmin, (req, res) => {
     const { code } = req.params;
     try {
       const database = loadDb();

@@ -22,7 +22,10 @@ import {
   ShieldAlert,
   UserCheck,
   Zap,
-  BookOpen
+  BookOpen,
+  LogIn,
+  LogOut,
+  ShieldCheck
 } from 'lucide-react';
 
 interface AppealRecord {
@@ -104,6 +107,85 @@ export default function App() {
   // Step indicator for direct appeal run
   const [activeStep, setActiveStep] = useState<number>(0);
 
+  // Admin states & authentication
+  const [adminToken, setAdminToken] = useState<string | null>(() => localStorage.getItem('adminToken'));
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  const isAdminLoggedIn = !!adminToken;
+
+  // Custom fetch wrapper to include authorization headers automatically
+  const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const headers = {
+      ...(init?.headers || {}),
+      'Content-Type': 'application/json',
+      ...(adminToken ? { 'Authorization': `Bearer ${adminToken}` } : {}),
+    };
+    
+    // For GET/DELETE requests, remove Content-Type if body is empty or not provided
+    if (init?.method === 'GET' || init?.method === 'DELETE') {
+      delete (headers as any)['Content-Type'];
+    }
+
+    const res = await window.fetch(input, { ...init, headers });
+    if (res.status === 401 && (
+      input.toString().includes('/api/users') || 
+      input.toString().includes('/api/config') || 
+      input.toString().includes('/api/redeem-codes') || 
+      input.toString().includes('/api/clear-history')
+    )) {
+      // If we got unauthorized on admin routes, automatically log out
+      localStorage.removeItem('adminToken');
+      setAdminToken(null);
+      if (activeTab === 'users' || activeTab === 'settings') {
+        setActiveTab('dashboard');
+      }
+    }
+    return res;
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/admin/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+    localStorage.removeItem('adminToken');
+    setAdminToken(null);
+    setActiveTab('dashboard');
+  };
+
+  const handleLoginSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      const res = await window.fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: adminUsername, password: adminPassword }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        localStorage.setItem('adminToken', data.token);
+        setAdminToken(data.token);
+        setShowLoginModal(false);
+        setAdminUsername('');
+        setAdminPassword('');
+        setActiveTab('settings');
+      } else {
+        setLoginError(data.error || 'Username atau password salah!');
+      }
+    } catch (err) {
+      setLoginError('Koneksi ke server gagal. Silakan coba lagi.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
   const fetchStatus = async () => {
     try {
       const res = await fetch('/api/status');
@@ -158,22 +240,24 @@ export default function App() {
   useEffect(() => {
     fetchStatus();
     fetchAppeals();
-    fetchUsers();
-    fetchRedeemCodes();
-  }, []);
+    if (isAdminLoggedIn) {
+      fetchUsers();
+      fetchRedeemCodes();
+    }
+  }, [isAdminLoggedIn]);
 
   useEffect(() => {
-    if (activeTab === 'users') {
+    if (activeTab === 'users' && isAdminLoggedIn) {
       fetchUsers();
     } else if (activeTab === 'history') {
       fetchAppeals();
     } else if (activeTab === 'dashboard') {
       fetchStatus();
       fetchAppeals();
-    } else if (activeTab === 'settings') {
+    } else if (activeTab === 'settings' && isAdminLoggedIn) {
       fetchRedeemCodes();
     }
-  }, [activeTab]);
+  }, [activeTab, isAdminLoggedIn]);
 
   const handleUpdateConfig = async (e: FormEvent) => {
     e.preventDefault();
@@ -378,27 +462,55 @@ export default function App() {
             </p>
           </div>
 
-          {/* Luxury Rounded Tab Selector */}
-          <div className="flex items-center gap-1 p-1 bg-white/5 rounded-full border border-white/5 self-stretch md:self-auto justify-around overflow-x-auto">
-            {[
-              { id: 'dashboard', label: 'Banding', icon: Send },
-              { id: 'users', label: 'Pengguna', icon: Users },
-              { id: 'history', label: 'Riwayat', icon: History },
-              { id: 'settings', label: 'Konfigurasi', icon: Settings },
-            ].map(tab => (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 self-stretch md:self-auto">
+            {/* Luxury Rounded Tab Selector */}
+            <div className="flex items-center gap-1 p-1 bg-white/5 rounded-full border border-white/5 justify-around overflow-x-auto">
+              {[
+                { id: 'dashboard', label: 'Banding', icon: Send },
+                ...(isAdminLoggedIn ? [
+                  { id: 'users', label: 'Pengguna', icon: Users },
+                ] : []),
+                { id: 'history', label: 'Riwayat', icon: History },
+                ...(isAdminLoggedIn ? [
+                  { id: 'settings', label: 'Konfigurasi', icon: Settings },
+                ] : []),
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex items-center gap-2 px-4 sm:px-5 py-2 rounded-full text-xs font-medium tracking-wide transition-all whitespace-nowrap ${
+                    activeTab === tab.id 
+                      ? 'bg-white text-black shadow-lg font-semibold' 
+                      : 'text-white/60 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <tab.icon className="w-3.5 h-3.5" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Admin Login/Logout Button */}
+            {isAdminLoggedIn ? (
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 sm:px-5 py-2 rounded-full text-xs font-medium tracking-wide transition-all whitespace-nowrap ${
-                  activeTab === tab.id 
-                    ? 'bg-white text-black shadow-lg font-semibold' 
-                    : 'text-white/60 hover:text-white hover:bg-white/5'
-                }`}
+                onClick={handleLogout}
+                className="flex items-center justify-center gap-2 px-5 py-2 rounded-full text-xs font-medium tracking-wide border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 active:scale-[0.98] transition-all cursor-pointer"
               >
-                <tab.icon className="w-3.5 h-3.5" />
-                {tab.label}
+                <LogOut className="w-3.5 h-3.5" />
+                Keluar Admin
               </button>
-            ))}
+            ) : (
+              <button
+                onClick={() => {
+                  setLoginError('');
+                  setShowLoginModal(true);
+                }}
+                className="flex items-center justify-center gap-2 px-5 py-2 rounded-full text-xs font-medium tracking-wide border border-white/10 bg-white/5 text-white hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                Masuk Admin
+              </button>
+            )}
           </div>
         </header>
 
@@ -1261,6 +1373,112 @@ export default function App() {
 
                 </div>
 
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Admin Login Modal */}
+        <AnimatePresence>
+          {showLoginModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowLoginModal(false)}
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              />
+              
+              {/* Modal Card */}
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ type: 'spring', duration: 0.5 }}
+                className="relative w-full max-w-md p-8 rounded-3xl bg-[#09090b] border border-white/10 shadow-2xl overflow-hidden z-10"
+              >
+                {/* Visual Accent */}
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-emerald-500 via-blue-500 to-indigo-500" />
+                
+                <div className="mb-6 text-center">
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/5 border border-white/10 mb-4">
+                    <ShieldCheck className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <h3 className="text-xl font-serif italic text-white">Login Administrator</h3>
+                  <p className="text-xs text-white/40 mt-1">
+                    Silakan masukkan kredensial admin untuk mengakses menu manajemen pengguna & konfigurasi.
+                  </p>
+                </div>
+
+                <form onSubmit={handleLoginSubmit} className="space-y-4">
+                  {loginError && (
+                    <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs text-center flex items-center justify-center gap-2">
+                      <ShieldAlert className="w-4 h-4 flex-shrink-0" />
+                      <span>{loginError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                      Username
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        value={adminUsername}
+                        onChange={(e) => setAdminUsername(e.target.value)}
+                        placeholder="Masukkan username admin"
+                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/30 focus:bg-white/[0.07] transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-widest text-white/40 mb-1.5">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        required
+                        value={adminPassword}
+                        onChange={(e) => setAdminPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder-white/20 focus:outline-none focus:border-white/30 focus:bg-white/[0.07] transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginModal(false)}
+                      className="flex-1 py-3 bg-white/5 hover:bg-white/10 active:scale-[0.98] rounded-xl text-sm font-semibold text-white/80 transition-all border border-white/5"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loginLoading}
+                      className="flex-1 py-3 bg-white hover:bg-white/90 active:scale-[0.98] text-black font-semibold text-sm rounded-xl transition-all disabled:opacity-55 flex items-center justify-center gap-2"
+                    >
+                      {loginLoading ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        'Masuk'
+                      )}
+                    </button>
+                  </div>
+                </form>
+                
+                <div className="mt-6 text-center">
+                  <p className="text-[10px] text-white/30">
+                    Sistem Otentikasi Terenkripsi & Server-Authoritative
+                  </p>
+                </div>
               </motion.div>
             </div>
           )}
