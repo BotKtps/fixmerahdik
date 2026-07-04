@@ -82,9 +82,32 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
     .replace(/{name}/g, name)
     .replace(/{number}/g, formattedNumber);
 
-  // Setup multiple transporter configurations for maximum compatibility on environments like Railway
-  const smtpConfigs: any[] = [
-    // Strategy 1: Standard built-in 'gmail' service (Nodemailer automatically handles settings)
+  const customHost = (config.smtp_host || '').trim();
+  const customPort = Number(config.smtp_port) || 465;
+  const customSecure = config.smtp_secure !== undefined ? !!config.smtp_secure : (customPort === 465);
+
+  // Setup multiple transporter configurations for maximum compatibility
+  const smtpConfigs: any[] = [];
+
+  // If custom SMTP host is set, prioritize it as Strategy 1
+  if (customHost) {
+    smtpConfigs.push({
+      host: customHost,
+      port: customPort,
+      secure: customSecure,
+      auth: {
+        user: cleanUser,
+        pass: cleanPass,
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+  }
+
+  // Add standard fallback strategies
+  smtpConfigs.push(
+    // Strategy 2: Standard built-in 'gmail' service (Nodemailer automatically handles settings)
     {
       service: 'gmail',
       auth: {
@@ -92,7 +115,7 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
         pass: cleanPass,
       }
     },
-    // Strategy 2: Direct secure SSL on port 465
+    // Strategy 3: Direct secure SSL on port 465
     {
       host: 'smtp.gmail.com',
       port: 465,
@@ -105,7 +128,7 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
         rejectUnauthorized: false
       }
     },
-    // Strategy 3: Alternative STARTTLS on port 587 (Often open when 465 is blocked by cloud firewalls)
+    // Strategy 4: Alternative STARTTLS on port 587
     {
       host: 'smtp.gmail.com',
       port: 587,
@@ -119,7 +142,7 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
         minVersion: 'TLSv1.2'
       }
     }
-  ];
+  );
 
   const mailOptions = {
     from: `"WhatsApp Support Appeal" <${cleanUser}>`,

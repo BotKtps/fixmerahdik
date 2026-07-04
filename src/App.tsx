@@ -59,6 +59,9 @@ interface SystemStatus {
     has_bot_token: boolean;
     custom_success_msg?: string;
     custom_fail_msg?: string;
+    smtp_host?: string;
+    smtp_port?: number;
+    smtp_secure?: boolean;
   };
   stats: {
     totalAppeals: number;
@@ -99,6 +102,9 @@ export default function App() {
   const [botToken, setBotToken] = useState('');
   const [customSuccessMsg, setCustomSuccessMsg] = useState('');
   const [customFailMsg, setCustomFailMsg] = useState('');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('465');
+  const [smtpSecure, setSmtpSecure] = useState(true);
   const [settingsStatus, setSettingsStatus] = useState<{ success?: boolean; message?: string } | null>(null);
 
   // Detail Modal / Drawer field
@@ -195,6 +201,9 @@ export default function App() {
         setGmailUser(data.config.gmail_user || '');
         setCustomSuccessMsg(data.config.custom_success_msg || '');
         setCustomFailMsg(data.config.custom_fail_msg || '');
+        setSmtpHost(data.config.smtp_host || '');
+        setSmtpPort(String(data.config.smtp_port || '465'));
+        setSmtpSecure(data.config.smtp_secure !== undefined ? !!data.config.smtp_secure : true);
       }
     } catch (err) {
       console.error('Error fetching system status:', err);
@@ -271,7 +280,10 @@ export default function App() {
           gmail_pass: gmailPass,
           bot_token: botToken,
           custom_success_msg: customSuccessMsg,
-          custom_fail_msg: customFailMsg
+          custom_fail_msg: customFailMsg,
+          smtp_host: smtpHost,
+          smtp_port: smtpPort ? Number(smtpPort) : undefined,
+          smtp_secure: smtpSecure
         }),
       });
       const data = await res.json();
@@ -1070,48 +1082,101 @@ export default function App() {
 
                 <form onSubmit={handleUpdateConfig} className="space-y-6">
                   
-                  {/* Gmail Address */}
+                  {/* Gmail/SMTP Address */}
                   <div>
                     <label className="block text-[10px] uppercase tracking-wider text-white/40 font-bold mb-3 flex items-center gap-2">
                       <Mail className="w-3.5 h-3.5 text-white/50" />
-                      Email Gmail Pengirim
+                      Email / SMTP Username Pengirim
                     </label>
                     <input
-                      type="email"
+                      type="text"
                       required
-                      placeholder="Contoh: user@gmail.com"
+                      placeholder="Contoh: user@gmail.com atau username SMTP"
                       className="w-full bg-[#090909] border border-white/5 rounded-2xl px-5 py-4 text-sm outline-none focus:border-white/20 transition-all font-mono"
                       value={gmailUser}
                       onChange={(e) => setGmailUser(e.target.value)}
                     />
                     <p className="text-[10px] text-white/40 mt-2">
-                      Gunakan akun Gmail utama atau alternatif Anda untuk mengirim email otomatis.
+                      Masukkan alamat email pengirim Anda (seperti Gmail atau user SMTP kustom).
                     </p>
                   </div>
 
-                  {/* Gmail App Password */}
+                  {/* Gmail App Password / SMTP Password */}
                   <div>
                     <label className="block text-[10px] uppercase tracking-wider text-white/40 font-bold mb-3 flex items-center gap-2">
                       <Key className="w-3.5 h-3.5 text-white/50" />
-                      Gmail App Password (16-Digit)
+                      Sandi Aplikasi (App Password) / SMTP Password
                     </label>
                     <input
                       type="password"
-                      placeholder="Masukkan App Password baru untuk memperbarui..."
+                      placeholder="Masukkan kata sandi baru untuk memperbarui..."
                       className="w-full bg-[#090909] border border-white/5 rounded-2xl px-5 py-4 text-sm outline-none focus:border-white/20 transition-all font-mono"
                       value={gmailPass}
                       onChange={(e) => setGmailPass(e.target.value)}
                     />
                     <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 mt-3 space-y-2">
                       <p className="text-[10px] text-white/50 leading-relaxed">
-                        ⚠️ <b>Cara mendapatkan App Password Gmail:</b>
+                        ⚠️ <b>Petunjuk Penggunaan:</b>
                       </p>
-                      <ol className="text-[9px] text-white/40 list-decimal list-inside space-y-1 leading-relaxed">
-                        <li>Aktifkan Verifikasi 2 Langkah (2-Step Verification) pada akun Google Anda.</li>
-                        <li>Cari kata kunci "Sandi Aplikasi" (App Passwords) di kolom pencarian Akun Google Anda.</li>
-                        <li>Pilih opsi "Lainnya (Nama Kustom)" dan buat nama misalnya "AeroAppeal Bot".</li>
-                        <li>Salin kode 16 digit yang muncul tanpa spasi dan tempelkan pada kolom di atas.</li>
-                      </ol>
+                      <ul className="text-[9px] text-white/40 list-disc list-inside space-y-1 leading-relaxed">
+                        <li>Jika menggunakan <b>Gmail</b>, pastikan Anda menggunakan <b>App Password 16-Digit</b> (Sandi Aplikasi), bukan sandi utama Gmail Anda.</li>
+                        <li>Jika menggunakan <b>Custom SMTP</b> (Brevo, Outlook, dll), masukkan kata sandi SMTP asli atau API Key dari provider tersebut.</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Custom SMTP Configuration */}
+                  <div className="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-white/5">
+                      <div>
+                        <h4 className="text-xs font-semibold text-white/80">Pengaturan SMTP Server Kustom</h4>
+                        <p className="text-[9px] text-white/40 mt-0.5">Bypass pemblokiran IP Google Cloud di Railway dengan menggunakan SMTP server pihak ketiga.</p>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/10 text-amber-400 text-[10px] leading-relaxed">
+                      ⚠️ <b>SANGAT PENTING BAGI PENGGUNA RAILWAY:</b> Google Cloud memblokir akses dari alamat IP Railway ke Gmail (smtp.gmail.com), sehingga menyebabkan koneksi timeout. Agar tetap lancar di Railway, silakan gunakan SMTP kustom seperti <b>Brevo (Sendinblue), Resend, Outlook (smtp.office365.com), Yahoo, atau hosting cPanel</b> Anda.
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[9px] uppercase tracking-wider text-white/40 font-bold mb-2">
+                          SMTP Host
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Default: smtp.gmail.com"
+                          className="w-full bg-[#090909] border border-white/5 rounded-xl px-4 py-3 text-xs outline-none focus:border-white/10 transition-all font-mono"
+                          value={smtpHost}
+                          onChange={(e) => setSmtpHost(e.target.value)}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[9px] uppercase tracking-wider text-white/40 font-bold mb-2">
+                          SMTP Port
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Default: 465"
+                          className="w-full bg-[#090909] border border-white/5 rounded-xl px-4 py-3 text-xs outline-none focus:border-white/10 transition-all font-mono"
+                          value={smtpPort}
+                          onChange={(e) => setSmtpPort(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-1">
+                      <input
+                        type="checkbox"
+                        id="smtpSecure"
+                        className="w-4 h-4 rounded bg-[#090909] border-white/10 text-emerald-500 focus:ring-0 focus:ring-offset-0"
+                        checked={smtpSecure}
+                        onChange={(e) => setSmtpSecure(e.target.checked)}
+                      />
+                      <label htmlFor="smtpSecure" className="text-xs text-white/60 cursor-pointer select-none">
+                        Gunakan SSL/TLS Aman (Centang untuk Port 465, Kosongkan untuk Port 587/STARTTLS)
+                      </label>
                     </div>
                   </div>
 

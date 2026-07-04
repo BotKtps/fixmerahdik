@@ -125,7 +125,10 @@ function setupTelegramBot(token: string) {
   console.log('Starting Telegram Bot with token:', token.substring(0, 6) + '...');
   
   try {
-    const bot = new TelegramBot(token, { polling: true });
+    const isVercel = !!process.env.VERCEL;
+    const usePolling = !isVercel;
+    
+    const bot = new TelegramBot(token, { polling: usePolling });
     botInstance = bot;
 
     // Fetch bot username dynamically
@@ -982,23 +985,54 @@ function setupTelegramBot(token: string) {
   }
 }
 
-async function startServer() {
-  const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const app = express();
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-  app.use(cors());
-  app.use(express.json());
+app.use(cors());
+app.use(express.json());
 
-  // Initialize and sync Firestore database before booting components
-  await initDb();
-
-  // Initialize bot from saved database on startup
-  const db = loadDb();
-  if (db.config.bot_token) {
-    setupTelegramBot(db.config.bot_token);
+// Lazy-initialization middleware for serverless/multi-instance environments (like Vercel)
+let isInitialized = false;
+app.use(async (req, res, next) => {
+  if (!isInitialized) {
+    await initDb();
+    const db = loadDb();
+    if (db.config.bot_token && !botInstance) {
+      try {
+        setupTelegramBot(db.config.bot_token);
+      } catch (err) {
+        console.error('Failed to initialize Telegram Bot in middleware:', err);
+      }
+    }
+    isInitialized = true;
   }
 
-  // --- API Routes ---
+  // Dynamically configure/set Telegram webhook in production/Vercel
+  const isVercel = !!process.env.VERCEL;
+  if (isVercel && botInstance && req.headers.host) {
+    const currentHost = req.headers.host;
+    const webhookUrl = `https://${currentHost}/api/telegram-webhook`;
+    botInstance.setWebHook(webhookUrl).catch((err) => {
+      console.error('Failed to automatically set Telegram Webhook:', err);
+    });
+  }
+
+  next();
+});
+
+// Telegram Webhook Endpoint for Serverless / Vercel
+app.post('/api/telegram-webhook', (req, res) => {
+  if (botInstance) {
+    try {
+      botInstance.processUpdate(req.body);
+    } catch (err: any) {
+      console.error('Error processing Telegram update via webhook:', err);
+    }
+  }
+  res.sendStatus(200);
+});
+
+// --- API Routes ---
   
   // --- Admin Authentication Endpoints ---
 
@@ -1033,7 +1067,10 @@ async function startServer() {
         bot_token: database.config.bot_token ? '••••••••••••••••' : '',
         has_bot_token: !!database.config.bot_token,
         custom_success_msg: database.config.custom_success_msg || '',
-        custom_fail_msg: database.config.custom_fail_msg || ''
+        custom_fail_msg: database.config.custom_fail_msg || '',
+        smtp_host: database.config.smtp_host || 'smtp.gmail.com',
+        smtp_port: database.config.smtp_port || 465,
+        smtp_secure: database.config.smtp_secure !== undefined ? database.config.smtp_secure : true
       },
       stats: {
         totalAppeals: database.appeals.length,
@@ -1048,7 +1085,7 @@ async function startServer() {
 
   // Update configuration (Gmail & Telegram Token)
   app.post('/api/config', requireAdmin, (req, res) => {
-    const { gmail_user, gmail_pass, bot_token, custom_success_msg, custom_fail_msg } = req.body;
+    const { gmail_user, gmail_pass, bot_token, custom_success_msg, custom_fail_msg, smtp_host, smtp_port, smtp_secure } = req.body;
     
     try {
       const database = loadDb();
@@ -1067,6 +1104,10 @@ async function startServer() {
 
       if (custom_success_msg !== undefined) database.config.custom_success_msg = custom_success_msg;
       if (custom_fail_msg !== undefined) database.config.custom_fail_msg = custom_fail_msg;
+
+      if (smtp_host !== undefined) database.config.smtp_host = smtp_host;
+      if (smtp_port !== undefined) database.config.smtp_port = Number(smtp_port) || 465;
+      if (smtp_secure !== undefined) database.config.smtp_secure = !!smtp_secure;
 
       saveDb(database);
 
@@ -1225,24 +1266,27 @@ async function startServer() {
     }
   });
 
-  // --- Vite Middleware ---
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+  // --- Vite / Static Server and Listen (Local & Traditional Hosting Only) ---
+  if (!process.env.VERCEL) {
+    (async () => {
+      if (process.env.NODE_ENV !== 'production') {
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: 'spa',
+        });
+        app.use(vite.middlewares);
+      } else {
+        const distPath = path.join(process.cwd(), 'dist');
+        app.use(express.static(distPath));
+        app.get('*', (req, res) => {
+          res.sendFile(path.join(distPath, 'index.html'));
+        });
+      }
+
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+      });
+    })();
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
-
-startServer();
+  export default app;
