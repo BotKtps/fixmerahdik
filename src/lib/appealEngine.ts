@@ -62,6 +62,10 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
     throw new Error('Konfigurasi Gmail belum diatur! Gunakan menu setmail terlebih dahulu.');
   }
 
+  // Auto-clean email and app password (remove spaces often copied from Google Account interface)
+  const cleanUser = config.gmail_user.trim();
+  const cleanPass = config.gmail_pass.trim().replace(/\s+/g, '');
+
   // Format phone number to clean digit-only format but preserve the leading plus
   let formattedNumber = phoneNumber.trim().replace(/[^\d+]/g, '');
   if (!formattedNumber.startsWith('+')) {
@@ -84,8 +88,8 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
     {
       service: 'gmail',
       auth: {
-        user: config.gmail_user,
-        pass: config.gmail_pass,
+        user: cleanUser,
+        pass: cleanPass,
       }
     },
     // Strategy 2: Direct secure SSL on port 465
@@ -94,8 +98,8 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
       port: 465,
       secure: true,
       auth: {
-        user: config.gmail_user,
-        pass: config.gmail_pass,
+        user: cleanUser,
+        pass: cleanPass,
       },
       tls: {
         rejectUnauthorized: false
@@ -107,8 +111,8 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
       port: 587,
       secure: false,
       auth: {
-        user: config.gmail_user,
-        pass: config.gmail_pass,
+        user: cleanUser,
+        pass: cleanPass,
       },
       tls: {
         rejectUnauthorized: false,
@@ -118,7 +122,7 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
   ];
 
   const mailOptions = {
-    from: `"WhatsApp Support Appeal" <${config.gmail_user}>`,
+    from: `"WhatsApp Support Appeal" <${cleanUser}>`,
     to: 'android@support.whatsapp.com',
     subject: subject,
     text: bodyText,
@@ -158,7 +162,22 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
 
   try {
     if (!emailSent) {
-      throw new Error(`Semua strategi koneksi SMTP gagal. Error terakhir: ${lastSmtpError}`);
+      // Analyze SMTP error for user-friendly diagnostics
+      let diagnosticMessage = `Semua strategi koneksi SMTP gagal. Error terakhir: ${lastSmtpError}.`;
+      
+      const lowerError = lastSmtpError.toLowerCase();
+      if (lowerError.includes('username and password not accepted') || lowerError.includes('535') || lowerError.includes('auth')) {
+        diagnosticMessage = `Gagal Login Gmail (${lastSmtpError}). 
+👉 TIPS: Pastikan Anda menggunakan **Sandi Aplikasi (App Password) 16 karakter** dari Akun Google Anda, BUKAN sandi utama Gmail Anda. Dan pastikan fitur Verifikasi 2 Langkah (2-Step Verification) sudah aktif di akun Google Anda.`;
+      } else if (lowerError.includes('timeout') || lowerError.includes('refused') || lowerError.includes('conn') || lowerError.includes('socket')) {
+        diagnosticMessage = `Koneksi Terblokir (${lastSmtpError}). 
+👉 TIPS: Layanan hosting (seperti Railway) terkadang memblokir port keluar SMTP (465/587). Coba periksa apakah Anda menggunakan hosting gratis yang membatasi pengiriman email, atau hubungi support platform hosting Anda.`;
+      } else if (lowerError.includes('envelope') || lowerError.includes('sender')) {
+        diagnosticMessage = `Alamat email pengirim tidak valid (${lastSmtpError}). 
+👉 TIPS: Pastikan Anda menuliskan email Gmail Anda dengan benar tanpa ada spasi atau salah ketik.`;
+      }
+
+      throw new Error(diagnosticMessage);
     }
 
     record.status = 'success';
