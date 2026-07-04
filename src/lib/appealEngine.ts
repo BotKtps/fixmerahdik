@@ -78,23 +78,48 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
     .replace(/{name}/g, name)
     .replace(/{number}/g, formattedNumber);
 
-  // Setup email transporter
-  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // Use SSL
-    auth: {
-      user: config.gmail_user,
-      pass: config.gmail_pass,
+  // Setup multiple transporter configurations for maximum compatibility on environments like Railway
+  const smtpConfigs: any[] = [
+    // Strategy 1: Standard built-in 'gmail' service (Nodemailer automatically handles settings)
+    {
+      service: 'gmail',
+      auth: {
+        user: config.gmail_user,
+        pass: config.gmail_pass,
+      }
     },
-    tls: {
-      rejectUnauthorized: false // Avoid TLS handshake failures on various container hosting environments
+    // Strategy 2: Direct secure SSL on port 465
+    {
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: {
+        user: config.gmail_user,
+        pass: config.gmail_pass,
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    },
+    // Strategy 3: Alternative STARTTLS on port 587 (Often open when 465 is blocked by cloud firewalls)
+    {
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: config.gmail_user,
+        pass: config.gmail_pass,
+      },
+      tls: {
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+      }
     }
-  });
+  ];
 
   const mailOptions = {
     from: `"WhatsApp Support Appeal" <${config.gmail_user}>`,
-    to: 'android@support.whatsapp.com, iphone@support.whatsapp.com, support@support.whatsapp.com, support@whatsapp.com, webclient@support.whatsapp.com',
+    to: 'android@support.whatsapp.com',
     subject: subject,
     text: bodyText,
   };
@@ -114,8 +139,28 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
     username: telegramUser?.username,
   };
 
+  let emailSent = false;
+  let lastSmtpError = '';
+
+  for (let i = 0; i < smtpConfigs.length; i++) {
+    try {
+      console.log(`Trying SMTP configuration strategy ${i + 1}...`);
+      const transporter = nodemailer.createTransport(smtpConfigs[i]);
+      await transporter.sendMail(mailOptions);
+      emailSent = true;
+      console.log(`SMTP strategy ${i + 1} succeeded! Email sent successfully.`);
+      break;
+    } catch (err: any) {
+      console.error(`SMTP strategy ${i + 1} failed:`, err.message || err);
+      lastSmtpError = err.message || 'Unknown SMTP error';
+    }
+  }
+
   try {
-    await transporter.sendMail(mailOptions);
+    if (!emailSent) {
+      throw new Error(`Semua strategi koneksi SMTP gagal. Error terakhir: ${lastSmtpError}`);
+    }
+
     record.status = 'success';
     
     // Save to local database
