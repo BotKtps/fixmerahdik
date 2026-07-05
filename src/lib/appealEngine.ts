@@ -1,5 +1,12 @@
 import nodemailer from 'nodemailer';
 import { loadDb, saveDb, AppealRecord } from './db.ts';
+import dns from 'dns';
+
+// Force Node.js to resolve IPv4 addresses first.
+// Cloud providers like Railway often have IPv6 routing issues or their IPv6 ranges are blacklisted/throttled by Gmail SMTP.
+if (dns && typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 // Dynamic, varying list of South Asian and Indonesian names
 const NAMES_POOL = [
@@ -101,7 +108,10 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
       },
       tls: {
         rejectUnauthorized: false
-      }
+      },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000,
     });
   }
 
@@ -113,7 +123,10 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
       auth: {
         user: cleanUser,
         pass: cleanPass,
-      }
+      },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000,
     },
     // Strategy 3: Direct secure SSL on port 465
     {
@@ -126,7 +139,10 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
       },
       tls: {
         rejectUnauthorized: false
-      }
+      },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000,
     },
     // Strategy 4: Alternative STARTTLS on port 587
     {
@@ -140,7 +156,10 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
       tls: {
         rejectUnauthorized: false,
         minVersion: 'TLSv1.2'
-      }
+      },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000,
     }
   );
 
