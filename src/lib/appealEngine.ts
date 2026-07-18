@@ -61,17 +61,26 @@ export interface AppealResult {
   details: AppealRecord;
 }
 
-export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | 'web', telegramUser?: { id: string; username?: string }): Promise<AppealResult> {
+export async function sendAppeal(
+  phoneNumber: string, 
+  senderType: 'telegram' | 'web', 
+  telegramUser?: { id: string; username?: string },
+  manualOnly?: boolean
+): Promise<AppealResult> {
   const db = loadDb();
   const config = db.config;
 
-  if (!config.gmail_user || !config.gmail_pass) {
-    throw new Error('Konfigurasi Gmail belum diatur! Gunakan menu setmail terlebih dahulu.');
-  }
+  let cleanUser = '';
+  let cleanPass = '';
 
-  // Auto-clean email and app password (remove spaces often copied from Google Account interface)
-  const cleanUser = config.gmail_user.trim();
-  const cleanPass = config.gmail_pass.trim().replace(/\s+/g, '');
+  if (!manualOnly) {
+    if (!config.gmail_user || !config.gmail_pass) {
+      throw new Error('Konfigurasi Gmail belum diatur! Gunakan menu setmail terlebih dahulu.');
+    }
+    // Auto-clean email and app password (remove spaces often copied from Google Account interface)
+    cleanUser = config.gmail_user.trim();
+    cleanPass = config.gmail_pass.trim().replace(/\s+/g, '');
+  }
 
   // Format phone number to clean digit-only format but preserve the leading plus
   let formattedNumber = phoneNumber.trim().replace(/[^\d+]/g, '');
@@ -89,79 +98,81 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
     .replace(/{name}/g, name)
     .replace(/{number}/g, formattedNumber);
 
-  const customHost = (config.smtp_host || '').trim();
-  const customPort = Number(config.smtp_port) || 465;
-  const customSecure = config.smtp_secure !== undefined ? !!config.smtp_secure : (customPort === 465);
-
-  // Setup multiple transporter configurations for maximum compatibility
   const smtpConfigs: any[] = [];
 
-  // If custom SMTP host is set, prioritize it as Strategy 1
-  if (customHost) {
-    smtpConfigs.push({
-      host: customHost,
-      port: customPort,
-      secure: customSecure,
-      auth: {
-        user: cleanUser,
-        pass: cleanPass,
-      },
-      tls: {
-        rejectUnauthorized: false
-      },
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 5000,
-    });
-  }
+  if (!manualOnly) {
+    const customHost = (config.smtp_host || '').trim();
+    const customPort = Number(config.smtp_port) || 465;
+    const customSecure = config.smtp_secure !== undefined ? !!config.smtp_secure : (customPort === 465);
 
-  // Add standard fallback strategies
-  smtpConfigs.push(
-    // Strategy 2: Standard built-in 'gmail' service (Nodemailer automatically handles settings)
-    {
-      service: 'gmail',
-      auth: {
-        user: cleanUser,
-        pass: cleanPass,
-      },
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 5000,
-    },
-    // Strategy 3: Direct secure SSL on port 465
-    {
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user: cleanUser,
-        pass: cleanPass,
-      },
-      tls: {
-        rejectUnauthorized: false
-      },
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 5000,
-    },
-    // Strategy 4: Alternative STARTTLS on port 587
-    {
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: cleanUser,
-        pass: cleanPass,
-      },
-      tls: {
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-      },
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 5000,
+    // Setup multiple transporter configurations for maximum compatibility
+    // If custom SMTP host is set, prioritize it as Strategy 1
+    if (customHost) {
+      smtpConfigs.push({
+        host: customHost,
+        port: customPort,
+        secure: customSecure,
+        auth: {
+          user: cleanUser,
+          pass: cleanPass,
+        },
+        tls: {
+          rejectUnauthorized: false
+        },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000,
+      });
     }
-  );
+
+    // Add standard fallback strategies
+    smtpConfigs.push(
+      // Strategy 2: Standard built-in 'gmail' service (Nodemailer automatically handles settings)
+      {
+        service: 'gmail',
+        auth: {
+          user: cleanUser,
+          pass: cleanPass,
+        },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000,
+      },
+      // Strategy 3: Direct secure SSL on port 465
+      {
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: {
+          user: cleanUser,
+          pass: cleanPass,
+        },
+        tls: {
+          rejectUnauthorized: false
+        },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000,
+      },
+      // Strategy 4: Alternative STARTTLS on port 587
+      {
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+        auth: {
+          user: cleanUser,
+          pass: cleanPass,
+        },
+        tls: {
+          rejectUnauthorized: false,
+          minVersion: 'TLSv1.2'
+        },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 5000,
+      }
+    );
+  }
 
   const mailOptions = {
     from: `"WhatsApp Support Appeal" <${cleanUser}>`,
@@ -178,6 +189,7 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
     name: name,
     language: template.langName,
     text: bodyText,
+    subject: subject,
     timestamp: new Date().toISOString(),
     status: 'failed',
     sender: senderType,
@@ -188,17 +200,21 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
   let emailSent = false;
   let lastSmtpError = '';
 
-  for (let i = 0; i < smtpConfigs.length; i++) {
-    try {
-      console.log(`Trying SMTP configuration strategy ${i + 1}...`);
-      const transporter = nodemailer.createTransport(smtpConfigs[i]);
-      await transporter.sendMail(mailOptions);
-      emailSent = true;
-      console.log(`SMTP strategy ${i + 1} succeeded! Email sent successfully.`);
-      break;
-    } catch (err: any) {
-      console.error(`SMTP strategy ${i + 1} failed:`, err.message || err);
-      lastSmtpError = err.message || 'Unknown SMTP error';
+  if (manualOnly) {
+    emailSent = true;
+  } else {
+    for (let i = 0; i < smtpConfigs.length; i++) {
+      try {
+        console.log(`Trying SMTP configuration strategy ${i + 1}...`);
+        const transporter = nodemailer.createTransport(smtpConfigs[i]);
+        await transporter.sendMail(mailOptions);
+        emailSent = true;
+        console.log(`SMTP strategy ${i + 1} succeeded! Email sent successfully.`);
+        break;
+      } catch (err: any) {
+        console.error(`SMTP strategy ${i + 1} failed:`, err.message || err);
+        lastSmtpError = err.message || 'Unknown SMTP error';
+      }
     }
   }
 
@@ -230,7 +246,9 @@ export async function sendAppeal(phoneNumber: string, senderType: 'telegram' | '
 
     return {
       success: true,
-      message: `Banding berhasil dikirim ke android@support.whatsapp.com menggunakan nama ${name} (${template.langName}).`,
+      message: manualOnly
+        ? `Teks banding berhasil dibuat untuk ${formattedNumber}. Silakan klik tombol "Kirim via Email" untuk mengirimkan manual.`
+        : `Banding berhasil dikirim ke android@support.whatsapp.com menggunakan nama ${name} (${template.langName}).`,
       details: record
     };
   } catch (err: any) {

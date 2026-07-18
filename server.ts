@@ -953,11 +953,36 @@ function setupTelegramBot(token: string) {
               .replace(/{number}/g, numberArg || '')
               .replace(/{error}/g, result.message);
 
-            await bot.editMessageText(failMsg, {
-              chat_id: chatId,
-              message_id: loadingMsg.message_id,
-              parse_mode: 'HTML'
-            });
+            if (result.details) {
+              const mailtoUrl = `mailto:android@support.whatsapp.com?subject=${encodeURIComponent(result.details.subject || '')}&body=${encodeURIComponent(result.details.text || '')}`;
+              failMsg += `\n\n💡 <b>SOLUSI TERBAIK (KIRIM MANUAL - 100% WORK)</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
+                         `Layanan hosting Anda mungkin memblokir port SMTP otomatis. Silakan klik tombol di bawah untuk membuka aplikasi email Anda dengan pesan banding yang sudah siap kirim, atau gunakan data berikut:\n\n` +
+                         `📧 <b>Kepada:</b> <code>android@support.whatsapp.com</code>\n` +
+                         `📝 <b>Subjek:</b> <code>${result.details.subject || 'Review Account'}</code>\n` +
+                         `💬 <b>Isi Pesan:</b>\n<pre>${result.details.text}</pre>`;
+
+              await bot.editMessageText(failMsg, {
+                chat_id: chatId,
+                message_id: loadingMsg.message_id,
+                parse_mode: 'HTML',
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '📧 Kirim Manual via Email (1-Klik)',
+                        url: mailtoUrl
+                      }
+                    ]
+                  ]
+                }
+              });
+            } else {
+              await bot.editMessageText(failMsg, {
+                chat_id: chatId,
+                message_id: loadingMsg.message_id,
+                parse_mode: 'HTML'
+              });
+            }
           }
         } catch (err: any) {
           let failMsg = `🔴 <b>[ AEROAPPEAL PRO — BYPASS FAILED ]</b> 🔴\n──────────────────────────────\n📱 <b>Nomor WA:</b> <code>{phone}</code>\n⚠️ <b>Penyebab:</b> <i>{error}</i>\n──────────────────────────────\n❌ <i>Silakan periksa kredensial SMTP Anda atau coba lagi nanti.</i>`;
@@ -965,6 +990,41 @@ function setupTelegramBot(token: string) {
             .replace(/{phone}/g, numberArg || '')
             .replace(/{number}/g, numberArg || '')
             .replace(/{error}/g, err.message || 'System Error');
+
+          try {
+            const manualResult = await sendAppeal(numberArg, 'telegram', {
+              id: fromId,
+              username: msg.from?.username
+            }, true);
+
+            if (manualResult.success && manualResult.details) {
+              const mailtoUrl = `mailto:android@support.whatsapp.com?subject=${encodeURIComponent(manualResult.details.subject || '')}&body=${encodeURIComponent(manualResult.details.text || '')}`;
+              failMsg += `\n\n💡 <b>SOLUSI TERBAIK (KIRIM MANUAL - 100% WORK)</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
+                         `Layanan hosting Anda memblokir port SMTP otomatis. Silakan klik tombol di bawah untuk membuka aplikasi email Anda dengan pesan banding yang sudah siap kirim, atau gunakan data berikut:\n\n` +
+                         `📧 <b>Kepada:</b> <code>android@support.whatsapp.com</code>\n` +
+                         `📝 <b>Subjek:</b> <code>${manualResult.details.subject || 'Review Account'}</code>\n` +
+                         `💬 <b>Isi Pesan:</b>\n<pre>${manualResult.details.text}</pre>`;
+
+              await bot.editMessageText(failMsg, {
+                chat_id: chatId,
+                message_id: loadingMsg.message_id,
+                parse_mode: 'HTML',
+                reply_markup: {
+                  inline_keyboard: [
+                    [
+                      {
+                        text: '📧 Kirim Manual via Email (1-Klik)',
+                        url: mailtoUrl
+                      }
+                    ]
+                  ]
+                }
+              });
+              return;
+            }
+          } catch (genErr) {
+            console.error('Failed to generate manual fallback in catch block:', genErr);
+          }
 
           await bot.editMessageText(failMsg, {
             chat_id: chatId,
@@ -1189,11 +1249,11 @@ app.post('/api/telegram-webhook', (req, res) => {
 
   // Direct appeal from Web UI
   app.post('/api/appeal', async (req, res) => {
-    const { phoneNumber } = req.body;
+    const { phoneNumber, manualOnly } = req.body;
     if (!phoneNumber) return res.status(400).json({ error: 'Nomor telepon wajib diisi' });
 
     try {
-      const result = await sendAppeal(phoneNumber, 'web');
+      const result = await sendAppeal(phoneNumber, 'web', undefined, !!manualOnly);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

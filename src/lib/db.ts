@@ -18,6 +18,7 @@ export interface AppealRecord {
   name: string;
   language: string;
   text: string;
+  subject?: string;
   timestamp: string;
   status: 'success' | 'failed';
   error?: string;

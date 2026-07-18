@@ -34,6 +34,7 @@ interface AppealRecord {
   name: string;
   language: string;
   text: string;
+  subject?: string;
   timestamp: string;
   status: 'success' | 'failed';
   error?: string;
@@ -95,6 +96,8 @@ export default function App() {
   // Quick Trigger fields
   const [phoneNumber, setPhoneNumber] = useState('');
   const [triggerStatus, setTriggerStatus] = useState<{ success?: boolean; message?: string } | null>(null);
+  const [deliveryMethod, setDeliveryMethod] = useState<'smtp' | 'manual'>('manual');
+  const [lastGeneratedAppeal, setLastGeneratedAppeal] = useState<AppealRecord | null>(null);
 
   // Settings fields
   const [gmailUser, setGmailUser] = useState('');
@@ -358,17 +361,18 @@ export default function App() {
 
     setLoading(true);
     setTriggerStatus(null);
+    setLastGeneratedAppeal(null);
     setActiveStep(1);
 
     // Simulate luxury progress steps for high-fidelity interactive feel
     const timer1 = setTimeout(() => setActiveStep(2), 1000);
-    const timer2 = setTimeout(() => setActiveStep(3), 2200);
+    const timer2 = setTimeout(() => setActiveStep(3), 2000);
 
     try {
       const res = await fetch('/api/appeal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneNumber }),
+        body: JSON.stringify({ phoneNumber, manualOnly: deliveryMethod === 'manual' }),
       });
       
       const data = await res.json();
@@ -380,11 +384,15 @@ export default function App() {
       
       if (res.ok && data.success) {
         setTriggerStatus({ success: true, message: data.message });
+        setLastGeneratedAppeal(data.details);
         setPhoneNumber('');
         fetchStatus();
         fetchAppeals();
       } else {
         setTriggerStatus({ success: false, message: data.error || data.message || 'Gagal mengirim email banding.' });
+        if (data.details) {
+          setLastGeneratedAppeal(data.details);
+        }
       }
     } catch (err: any) {
       setTriggerStatus({ success: false, message: err.message });
@@ -602,6 +610,42 @@ export default function App() {
                   </p>
 
                   <form onSubmit={handleDirectAppeal} className="space-y-6">
+                    {/* Delivery Method Selector */}
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wider text-white/40 font-bold mb-3">
+                        Metode Pengiriman Banding
+                      </label>
+                      <div className="grid grid-cols-2 gap-3 p-1 bg-[#090909] border border-white/5 rounded-2xl">
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryMethod('manual')}
+                          className={`py-3 rounded-xl text-xs font-semibold tracking-wide transition-all ${
+                            deliveryMethod === 'manual'
+                              ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/10'
+                              : 'text-white/50 hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          Kirim Manual (Anti-Spam & Anti-Blokir)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryMethod('smtp')}
+                          className={`py-3 rounded-xl text-xs font-semibold tracking-wide transition-all ${
+                            deliveryMethod === 'smtp'
+                              ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/10'
+                              : 'text-white/50 hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          Kirim Otomatis (SMTP Server)
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-white/40 mt-2 leading-relaxed">
+                        {deliveryMethod === 'manual' 
+                          ? '👉 Rekomendasi 100% Work di Railway: Sistem membuat teks banding ampuh, lalu Anda mengirimkannya sekali klik lewat email Anda sendiri.'
+                          : '👉 Server akan langsung mengirimkan email menggunakan akun SMTP Gmail yang dikonfigurasi di tab Konfigurasi.'}
+                      </p>
+                    </div>
+
                     <div>
                       <label className="block text-[10px] uppercase tracking-wider text-white/40 font-bold mb-3">
                         Nomor Telepon Target (Beserta Kode Negara)
@@ -620,8 +664,8 @@ export default function App() {
 
                     <button
                       type="submit"
-                      disabled={loading || !status?.config.gmail_user}
-                      className="w-full bg-white hover:bg-white/90 active:scale-[0.99] text-black font-semibold text-sm py-4 rounded-2xl tracking-wide flex items-center justify-center gap-2 transition-all disabled:opacity-40"
+                      disabled={loading || (deliveryMethod === 'smtp' && !status?.config.gmail_user)}
+                      className="w-full bg-white hover:bg-white/90 active:scale-[0.99] text-black font-semibold text-sm py-4 rounded-2xl tracking-wide flex items-center justify-center gap-2 transition-all disabled:opacity-40 cursor-pointer"
                     >
                       {loading ? (
                         <>
@@ -630,17 +674,17 @@ export default function App() {
                         </>
                       ) : (
                         <>
-                          Kirim Sekarang
+                          {deliveryMethod === 'manual' ? 'Buat Teks & Siapkan Email' : 'Kirim Sekarang via Server'}
                           <ChevronRight className="w-4 h-4" />
                         </>
                       )}
                     </button>
 
-                    {!status?.config.gmail_user && (
+                    {deliveryMethod === 'smtp' && !status?.config.gmail_user && (
                       <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 flex items-start gap-3">
                         <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                         <p className="text-[10px] text-amber-300/80 leading-relaxed">
-                          <b>Perhatian:</b> Anda belum mengonfigurasi email pengirim. Masuk ke tab <b>Konfigurasi</b> untuk menambahkan akun Gmail & App Password sebelum mengirim banding.
+                          <b>Perhatian:</b> Anda belum mengonfigurasi email pengirim. Masuk ke tab <b>Konfigurasi</b> untuk menambahkan akun Gmail & App Password sebelum mengirim banding otomatis via SMTP.
                         </p>
                       </div>
                     )}
@@ -688,12 +732,98 @@ export default function App() {
                         )}
                         <div>
                           <p className="text-sm font-semibold mb-1">
-                            {triggerStatus.success ? 'Banding Terkirim 100% Akurat' : 'Gagal Mengirim Banding'}
+                            {triggerStatus.success ? 'Banding Sukses Diproses' : 'Gagal Mengirim Banding'}
                           </p>
                           <p className="text-xs text-white/60 leading-relaxed">{triggerStatus.message}</p>
                         </div>
                       </div>
                     </div>
+                  )}
+
+                  {lastGeneratedAppeal && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-6 p-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 space-y-4"
+                    >
+                      <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                        <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Mail className="w-3.5 h-3.5" />
+                          SOLUSI MANUAL (100% WORK DI RAILWAY)
+                        </h4>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-semibold">
+                          Bypass Blokir
+                        </span>
+                      </div>
+                      
+                      <div className="space-y-3 text-xs">
+                        <div>
+                          <p className="text-white/40 text-[10px] uppercase font-bold mb-1">Kepada (Support WA):</p>
+                          <div className="flex items-center justify-between bg-black/40 px-3 py-2 rounded-xl border border-white/5 font-mono">
+                            <span className="text-white/80">android@support.whatsapp.com</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText('android@support.whatsapp.com');
+                                alert('Alamat email android@support.whatsapp.com disalin!');
+                              }}
+                              className="text-[10px] text-emerald-400 hover:underline font-semibold"
+                            >
+                              Salin
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-white/40 text-[10px] uppercase font-bold mb-1">Subjek Email:</p>
+                          <div className="flex items-center justify-between bg-black/40 px-3 py-2 rounded-xl border border-white/5 font-mono">
+                            <span className="text-white/80 truncate pr-4">{lastGeneratedAppeal.subject || `Review Account: ${lastGeneratedAppeal.phoneNumber}`}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(lastGeneratedAppeal.subject || `Review Account: ${lastGeneratedAppeal.phoneNumber}`);
+                                alert('Subjek email disalin!');
+                              }}
+                              className="text-[10px] text-emerald-400 hover:underline font-semibold shrink-0"
+                            >
+                              Salin
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-white/40 text-[10px] uppercase font-bold mb-1">Isi Pesan Banding:</p>
+                          <div className="relative bg-black/40 p-3 rounded-xl border border-white/5 font-mono text-[11px] leading-relaxed max-h-32 overflow-y-auto whitespace-pre-wrap text-white/80">
+                            {lastGeneratedAppeal.text}
+                          </div>
+                          <div className="flex justify-end mt-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(lastGeneratedAppeal.text);
+                                alert('Isi pesan banding disalin!');
+                              }}
+                              className="text-[10px] text-emerald-400 hover:underline font-semibold"
+                            >
+                              Salin Semua Teks
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2">
+                        <a
+                          href={`mailto:android@support.whatsapp.com?subject=${encodeURIComponent(lastGeneratedAppeal.subject || `Review Account: ${lastGeneratedAppeal.phoneNumber}`)}&body=${encodeURIComponent(lastGeneratedAppeal.text)}`}
+                          className="w-full py-4 rounded-xl font-semibold text-sm bg-emerald-500 hover:bg-emerald-600 text-black flex items-center justify-center gap-2 active:scale-[0.99] transition-all text-center"
+                        >
+                          <Mail className="w-4 h-4" />
+                          Kirim Manual via Email Sekarang
+                        </a>
+                        <p className="text-[10px] text-white/40 text-center mt-2 leading-relaxed">
+                          Saran: Klik tombol di atas untuk membuka aplikasi email Anda secara otomatis dengan subjek dan isi yang sudah terisi lengkap. Ini 100% aman dan pasti terkirim karena dikirim langsung dari email pribadi Anda!
+                        </p>
+                      </div>
+                    </motion.div>
                   )}
 
                 </div>
